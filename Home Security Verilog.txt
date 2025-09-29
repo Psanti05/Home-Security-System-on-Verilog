@@ -1,0 +1,530 @@
+// Santiago Piovesanel Lain
+// Herman Ho
+// December 2024
+
+module project241(
+	//Inputs 
+	SW, 
+	KEY, 
+	GPIO_0,
+	GPIO_1,
+	CLOCK_50, 
+	AUD_ADCDAT,
+	
+	// Bidirectionals
+	AUD_BCLK,
+	AUD_ADCLRCK,
+	AUD_DACLRCK,
+	FPGA_I2C_SDAT,
+	
+	//Outputs
+	LEDR,  
+	AUD_XCK,
+	AUD_DACDAT,
+	FPGA_I2C_SCLK,
+	VGA_R, 
+	VGA_G, 
+	VGA_B, 
+	VGA_HS, 
+	VGA_VS, 
+	VGA_BLANK_N, 
+	VGA_SYNC_N, 
+	VGA_CLK
+);
+	// Inputs 
+	input [9:0]SW;
+	input [36:0]GPIO_0;
+	input [36:0]GPIO_1;
+	input [3:0] KEY;
+	
+	//for vga inputs
+	//input [3:0]KEY; //which keys are used?
+	// vga end
+	
+	input CLOCK_50;
+	input AUD_ADCDAT;
+	
+	// Bidirectionals
+	inout AUD_BCLK;
+	inout AUD_ADCLRCK;
+	inout AUD_DACLRCK;
+	inout FPGA_I2C_SDAT;
+
+	// Outputs
+	output AUD_XCK;
+	output AUD_DACDAT;
+	output FPGA_I2C_SCLK;
+	output [7:0] VGA_R;
+	output [7:0] VGA_G;
+	output [7:0] VGA_B;
+	output VGA_HS;
+	output VGA_VS;
+	output VGA_BLANK_N;
+	output VGA_SYNC_N;
+	output VGA_CLK;  
+	
+	output [9:0] LEDR;
+	
+	wire resetn = KEY[0];
+	
+	wire IRSensor; //measurement of sensor (high/low signal)
+	wire loadIRSensor; //enable for IRSensor
+	wire reedSwitch; //measurement of reed switch (high/low signal)
+	wire loadReedSwitch; //enable for taking input from reed switch
+	
+	wire password;
+	wire wrongPassword;
+
+	wire l9, l8, l7, l6, l5, l4;
+	wire enableChoose;
+	
+	wire c10, c15, oneOrTwo;
+	wire loadCountdown;
+	wire loadAlarmCountdown;
+
+	//vga begin	
+	//vga wires
+	wire [2:0] colour;
+   wire [7:0] X;
+   wire [6:0] Y;
+	
+	wire [14:0] address;
+	wire [2:0] state1Img;
+	wire [2:0] state2Img;
+	wire [2:0] state3Img;
+	wire [2:0] state4Img;
+	wire [2:0] state5Img;
+	wire [2:0] state6Img;
+	
+	wire [5:0] imgState;
+  
+	counter1 oneTwo(resetn, CLOCK_50, oneOrTwo);
+	
+	counter10 countdown10(resetn, CLOCK_50, loadAlarmCountdown, c10);
+	
+	counter15 countdown15(resetn, CLOCK_50, loadCountdown, c15); 
+	
+	newpassword n1(CLOCK_50, enableChoose, SW[9], l9);
+	newpassword n2(CLOCK_50, enableChoose, SW[8], l8);
+	newpassword n3(CLOCK_50, enableChoose, SW[7], l7);
+	newpassword n4(CLOCK_50, enableChoose, SW[6], l6);
+	newpassword n5(CLOCK_50, enableChoose, SW[5], l5);
+	newpassword n6(CLOCK_50, enableChoose, SW[4], l4);
+	
+	password P1(SW[9:4], l9, l8, l7, l6, l5, l4, KEY[1], password, wrongPassword);
+	
+	detectIR IR1(loadIRSensor, GPIO_0[1], IRSensor);
+	
+	detectRS RS1(loadReedSwitch, GPIO_1[0], reedSwitch);
+	
+	DE1_SoC_Audio_Example A1(CLOCK_50, KEY[3:0], loadAlarmCountdown, oneOrTwo, AUD_ADCDAT, AUD_BCLK, AUD_ADCLRCK, AUD_DACLRCK, FPGA_I2C_SDAT, AUD_XCK, AUD_DACDAT, FPGA_I2C_SCLK);
+	
+	
+	FSM F1(
+		// Inputs
+		CLOCK_50, 
+		resetn, 
+		KEY[2],
+		IRSensor, 
+		reedSwitch,
+		password, 
+		wrongPassword, 
+		c15, 
+		c10,
+
+		// Load Outputs
+		loadIRSensor, 
+		loadReedSwitch, 
+		loadCountdown, 
+		loadAlarmCountdown, 
+
+		// Other Outputs
+		enableChoose,
+		LEDR[9:4],
+		imgState[0],
+		imgState[1],
+		imgState[2],
+		imgState[3],
+		imgState[4],
+		imgState[5]	
+	);
+	
+	assign LEDR[0] = password;
+	assign LEDR[1] = wrongPassword;
+	assign LEDR[2] = IRSensor;
+	assign LEDR[3] = reedSwitch;
+	
+	xyToVGA(CLOCK_50, X, Y);
+  	addressToROM(CLOCK_50, address);
+
+	s1Image S1(address, CLOCK_50, state1Img);
+	s2Image S2(address, CLOCK_50, state2Img);
+	s3Image S3(address, CLOCK_50, state3Img);
+	s4Image S4(address, CLOCK_50, state4Img);
+	s5Image S5(address, CLOCK_50, state5Img);
+	s6Image S6(address, CLOCK_50, state6Img);
+	
+	
+	//outputs image based on imgState[5:0] set in FSM module
+	printImage im1(colour, CLOCK_50, imgState, state1Img, state2Img, state3Img, state4Img, state5Img, state6Img);
+	
+	vga_adapter VGA (
+        .resetn(KEY[0]),
+        .clock(CLOCK_50),
+        .colour(colour),
+        .x(X),
+        .y(Y),
+        .plot(1),
+        .VGA_R(VGA_R),
+        .VGA_G(VGA_G),
+        .VGA_B(VGA_B),
+        .VGA_HS(VGA_HS),
+        .VGA_VS(VGA_VS),
+        .VGA_BLANK_N(VGA_BLANK_N),
+        .VGA_SYNC_N(VGA_SYNC_N),
+        .VGA_CLK(VGA_CLK)
+	);
+        defparam VGA.RESOLUTION = "160x120";
+        defparam VGA.MONOCHROME = "FALSE";
+        defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
+        defparam VGA.BACKGROUND_IMAGE = "scene1.mif";
+	
+endmodule
+
+module newpassword(CLOCK_50, enable, s, l);
+	input CLOCK_50;
+	input enable, s;
+	
+	output l;
+	
+	reg [0:0] q;
+	
+	
+	always@(posedge CLOCK_50)
+	begin
+		if(enable & s)
+			q <= 1'b1;
+		else if (enable & ~s)
+			q <= 1'b0;
+		else if (~enable & l)
+			q <= 1'b1;
+		else if (~enable & ~l)
+			q <= 1'b0;
+	end
+
+	assign l = (q==1'b1)? 1:0;
+	
+endmodule
+
+
+module password(sw, l9, l8, l7, l6, l5, l4, send, password, wrongPassword);
+	input [5:0]sw;
+	input l9, l8, l7, l6, l5, l4, send;
+	output password, wrongPassword;
+	
+	assign password = ~send & ((sw[5] & l9) | (~sw[5] & ~l9)) & ((sw[4] & l8) | (~sw[4] & ~l8)) & ((sw[3] & l7) | (~sw[3] & ~l7)) & ((sw[2] & l6) | (~sw[2] & ~l6)) & ((sw[1] & l5) | (~sw[1] & ~l5)) & ((sw[0] & l4) | (~sw[0] & ~l4));
+	assign wrongPassword = ~send & ((sw[5] & ~l9) | (~sw[5] & l9) | (sw[4] & ~l8) | (~sw[4] & l8) | (sw[3] & ~l7) | (~sw[3] & l7) | (sw[2] & ~l6) | (~sw[2] & l6) | (sw[1] & ~l5) | (~sw[1] & l5) | (sw[0] & ~l4) | (~sw[0] & l4));
+	
+endmodule
+
+
+module detectIR(loadIRSensor, IO, IRSensor);
+	input loadIRSensor, IO;
+	output IRSensor;
+	
+	assign IRSensor = IO & loadIRSensor;
+	
+endmodule
+
+
+module detectRS(loadReedSwitch, IO, reedSwitch);
+	input loadReedSwitch, IO;
+	output reedSwitch;
+	
+	assign reedSwitch = IO & loadReedSwitch;
+	
+endmodule
+
+
+module counter1(resetn, CLOCK_50, out);
+
+	input resetn;
+	input CLOCK_50;
+	output out;
+	
+	reg [1:0] Q;
+	reg [25:0] fastcount;
+	
+	wire enable;
+	assign enable = (fastcount == 26'd0)?1:0;
+	
+	
+	always@(posedge CLOCK_50)
+		begin
+			if(resetn == 0 | enable)
+				fastcount <= 26'd50000000;
+			else
+				fastcount <= fastcount - 1'b1;
+		end
+		
+		
+	always@(posedge CLOCK_50)
+		begin
+			if(resetn == 0 | Q == 2'b10)
+				Q <= 2'b0;
+			else if(enable)
+				Q <= Q + 1'b1;
+		end
+		
+		assign out = (Q==2'b01)? 1:0;
+		
+endmodule
+
+
+module counter10(resetn, CLOCK_50, load, out);
+
+	input resetn;
+	input CLOCK_50;  
+	input load;
+	output out;
+	
+	reg [3:0] Q;
+	reg [25:0] fastcount;
+	
+	wire enable;
+	assign enable = (fastcount == 26'd0)?1:0;
+	
+	
+	always@(posedge CLOCK_50)
+		begin
+			if(resetn == 0 | enable | load == 0)
+				fastcount <= 26'd50000000;
+			else
+				fastcount <= fastcount - 1'b1;
+		end
+		
+		
+	always@(posedge CLOCK_50)
+		begin
+			if(resetn == 0 | load == 0 | Q == 4'b1011)
+				Q <= 4'b0;
+			else if(enable)
+				Q <= Q + 1'b1;
+		end
+		
+		assign out = (Q==4'b1010)? 1:0;
+		
+endmodule
+
+
+
+module counter15(resetn, CLOCK_50, load, out);
+
+	input resetn;
+	input CLOCK_50; 
+	input load;
+	output out;
+	
+	reg [3:0] Q;
+	reg [25:0] fastcount;
+	
+	wire enable;
+	assign enable = (fastcount == 26'd0)?1:0;
+	
+	
+	always@(posedge CLOCK_50)
+		begin
+			if(resetn == 0 | enable| load == 0)
+				fastcount <= 26'd50000000;
+			else
+				fastcount <= fastcount - 1'b1;
+		end
+		
+		
+	always@(posedge CLOCK_50)
+		begin
+			if(resetn==0 | load == 0)
+				Q <= 4'b0;
+			else if(enable)
+				Q <= Q + 1'b1;
+		end
+		
+		assign out = (Q==4'b1111)? 1:0;
+		
+endmodule
+
+
+module FSM(
+	// Inputs
+	CLOCK_50, 
+	resetn, 
+	key, 
+	IRSensor, 
+	reedSwitch, 
+	password, 
+	wrongPassword, 
+	countdown, 
+	alarmCountdown,
+	
+	// Load outputs
+	loadIRSensor, 
+	loadReedSwitch,  
+	loadCountdown, 
+	loadAlarmCountdown, 
+	
+	// Other outputs
+	enableChoose, 
+	LEDR,
+	enableImg1,
+	enableImg2,
+	enableImg3,
+	enableImg4,
+	enableImg5,
+	enableImg6
+);
+	
+	input CLOCK_50;
+	input key;
+	input resetn, IRSensor, reedSwitch, password, wrongPassword, countdown, alarmCountdown;
+	output loadIRSensor, loadReedSwitch, loadCountdown, loadAlarmCountdown, enableChoose, enableImg1, enableImg2, enableImg3, enableImg4, enableImg5, enableImg6;
+	output [5:0] LEDR;
+	
+	// y is the current state and Y is the next state
+	reg [5:0] Y, y; 
+
+	// These correspond to each of the states in our FSM
+	parameter [5:0] ChooseP = 6'b000001, Off = 6'b000010, Armed = 6'b000100, SignalDoor = 6'b001000, SignalMotion = 6'b010000, soundAlarm = 6'b100000;
+
+	always@ (y, resetn, key, IRSensor, reedSwitch, password, wrongPassword, countdown, alarmCountdown)
+	begin
+		case(y)
+			ChooseP:
+			if (password) Y = Off;
+			else Y = ChooseP;	
+
+			Off:
+			if (~key) Y = ChooseP;
+			else if (password) Y = Armed;
+			else Y = Off;
+
+			Armed:
+			if (password) Y = Off;
+			else if (wrongPassword) Y = soundAlarm;
+			else if (reedSwitch) Y = SignalDoor;
+			else if (IRSensor) Y = SignalMotion;
+			else Y = Armed;
+
+			SignalDoor:
+			if (password) Y = Off;
+			else if (wrongPassword | countdown) Y = soundAlarm;
+			else Y = SignalDoor;
+
+			SignalMotion:
+			if (password) Y = Off;
+			else if (wrongPassword | countdown) Y = soundAlarm;
+			else Y = SignalMotion;
+
+			soundAlarm:
+			if (password | alarmCountdown) Y = Off;
+			else Y = soundAlarm;
+
+			default: Y = soundAlarm;
+		endcase
+	end
+
+
+	assign enableChoose = y[0];
+	assign loadIRSensor = y[2];
+	assign loadReedSwitch = y[2];
+	assign loadCountdown = y[3] | y[4];
+	assign loadAlarmCountdown = y[5];
+	
+	assign enableImg1 = y[0];
+	assign enableImg2 = y[1];
+	assign enableImg3 = y[2];
+	assign enableImg4 = y[3];
+	assign enableImg5 = y[4];
+	assign enableImg6 = y[5];
+	
+	assign LEDR[5] = y[5];
+	assign LEDR[4] = y[4];
+	assign LEDR[3] = y[3];
+	assign LEDR[2] = y[2];
+	assign LEDR[1] = y[1];
+	assign LEDR[0] = y[0];
+
+	
+	always@(posedge CLOCK_50, negedge resetn)
+	begin
+		if (~resetn) y <= ChooseP;
+		else y <= Y;
+	end
+
+
+endmodule
+
+
+
+//run through x/y -> feed VGA module
+module xyToVGA(clk, currX, currY);
+	input clk;
+	output reg [7:0] currX;
+	output reg [6:0] currY;
+	
+	always@(posedge clk)
+		begin
+      if(currX == 8'd159 & currY == 7'd119)
+      begin
+        currX <= 8'd0;
+        currY <= 7'd0;
+      end
+      else if(currX == 8'd159 & currY < 7'd119)
+      begin
+        currX <= 8'd0;
+        currY <= currY + 1'd1;
+      end
+      else
+        currX <= currX + 1'd1;
+    end
+endmodule
+
+
+//run through addresses -> feed ROM module
+module addressToROM(clk, add);
+  input clk;
+  output reg [14:0]add;
+
+  always@(posedge clk)
+    begin
+      if(add == 15'd19199)
+        add <= 15'd0;
+      else  
+        add <= add + 1'd1;
+    end
+	
+endmodule
+
+
+module printImage(c, clk, in, Img1, Img2, Img3, Img4, Img5, Img6);
+	input [5:0] in;
+	input clk;
+	input [2:0] Img1, Img2, Img3, Img4, Img5, Img6;
+	output reg [2:0] c;
+	
+	always@(posedge clk)
+	begin 
+		if (in[0])
+			c <= Img1;
+		else if (in[1])
+			c <= Img2;
+		else if (in[2])
+			c <= Img3;
+		else if (in[3])
+			c <= Img4;
+		else if (in[4])
+			c <= Img5;
+		else
+			c <= Img6;
+	end
+endmodule
+
